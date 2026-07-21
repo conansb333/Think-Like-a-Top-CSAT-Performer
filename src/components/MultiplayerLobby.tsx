@@ -8,6 +8,9 @@ interface MultiplayerLobbyProps {
   players: MultiplayerPlayer[];
   activeClientId: string;
   onLeave: () => void;
+  isHost?: boolean;
+  onStartGame?: () => void;
+  isSimulated?: boolean;
 }
 
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
@@ -15,6 +18,9 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   players,
   activeClientId,
   onLeave,
+  isHost,
+  onStartGame,
+  isSimulated,
 }) => {
   const [copied, setCopied] = React.useState(false);
 
@@ -94,6 +100,26 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 💡 <span className="font-semibold text-slate-400">Golden Tip:</span> Keep your Empathy Shields active during gold chests to block hijacks and detractor hits!
               </div>
             </div>
+
+            {isHost && onStartGame && (
+              <button
+                type="button"
+                onClick={onStartGame}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-emerald-950 font-black font-sans uppercase py-4 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 cursor-pointer border-b-4 border-emerald-700 active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+              >
+                <span>START TRAINING SESSION</span>
+              </button>
+            )}
+
+            {!isHost && isSimulated && onStartGame && (
+              <button
+                type="button"
+                onClick={onStartGame}
+                className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white font-black font-sans uppercase py-4 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 cursor-pointer border-b-4 border-indigo-700 active:scale-95 transition-all shadow-[0_0_15px_rgba(99,102,241,0.2)]"
+              >
+                <span>SIMULATE HOST START</span>
+              </button>
+            )}
 
             <button
               onClick={onLeave}

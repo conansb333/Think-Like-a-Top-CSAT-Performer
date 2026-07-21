@@ -102,6 +102,7 @@ export default function App() {
   const [multiplayerMode, setMultiplayerMode] = useState<'single_player' | 'multiplayer_player' | 'multiplayer_host' | null>(null);
   const [gameId, setGameId] = useState<string>('');
   const [multiplayerGame, setMultiplayerGame] = useState<MultiplayerGame | null>(null);
+  const [isSimulatedMultiplayer, setIsSimulatedMultiplayer] = useState<boolean>(false);
 
   // Player state
   const [player, setPlayer] = useState<Player>({
@@ -247,6 +248,7 @@ export default function App() {
   // Polling for Multiplayer state
   useEffect(() => {
     if (!multiplayerMode || multiplayerMode === 'single_player' || !gameId) return;
+    if (isSimulatedMultiplayer) return; // Skip real network polling in local simulation mode!
 
     let isSubscribed = true;
     
@@ -373,7 +375,266 @@ export default function App() {
       isSubscribed = false;
       clearInterval(interval);
     };
-  }, [multiplayerMode, gameId, clientId, phase]);
+  }, [multiplayerMode, gameId, clientId, phase, isSimulatedMultiplayer]);
+
+  // Local simulated multiplayer lobby joining
+  useEffect(() => {
+    if (!isSimulatedMultiplayer || phase !== 'lobby' || !multiplayerGame) return;
+
+    const botPool = [
+      { name: 'Sarah Owl 🦉', avatar: 'Wisdom Owl', emoji: '🦉' },
+      { name: 'Alex Lion 🦁', avatar: 'FCR Lion', emoji: '🦁' },
+      { name: 'Miku Panda 🐼', avatar: 'Chill Panda', emoji: '🐼' },
+      { name: 'Dave Fox 🦊', avatar: 'Empathy Fox', emoji: '🦊' },
+      { name: 'Emily Frog 🐸', avatar: 'Rapport Frog', emoji: '🐸' },
+    ];
+
+    // Select bots that aren't already in the lobby
+    const currentBotNames = multiplayerGame.players.map(p => p.name);
+    const availableBots = botPool.filter(b => !currentBotNames.includes(b.name));
+
+    if (availableBots.length === 0) return;
+
+    // Simulate player joining every 2.5 seconds
+    const timer = setTimeout(() => {
+      const randomBot = availableBots[Math.floor(Math.random() * availableBots.length)];
+      const newPlayer: MultiplayerPlayer = {
+        clientId: 'sim-bot-' + Math.random().toString(36).substr(2, 9),
+        name: randomBot.name,
+        avatar: randomBot.avatar,
+        avatarEmoji: randomBot.emoji,
+        gold: 0,
+        correctAnswers: 0,
+        totalAnswered: 0,
+        shieldCount: 0,
+        streak: 0,
+        highestStreak: 0,
+        isFinished: false,
+        lastActive: Date.now(),
+      };
+
+      setMultiplayerGame(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          players: [...prev.players, newPlayer],
+          logs: [`👋 ${randomBot.name} clocked onto the support floor!`, ...prev.logs],
+        };
+      });
+    }, 2500);
+
+    return () => clearTimeout(timer);
+  }, [isSimulatedMultiplayer, phase, multiplayerGame?.players.length]);
+
+  // Local simulated multiplayer gameplay tick
+  useEffect(() => {
+    if (!isSimulatedMultiplayer || !multiplayerGame || multiplayerGame.status !== 'playing') return;
+
+    const interval = setInterval(() => {
+      // Pick a random bot player
+      const botPlayers = multiplayerGame.players.filter(p => p.clientId !== clientId);
+      if (botPlayers.length === 0) return;
+
+      const randomBot = botPlayers[Math.floor(Math.random() * botPlayers.length)];
+      const isCorrect = Math.random() < 0.85;
+
+      setMultiplayerGame(prev => {
+        if (!prev) return null;
+
+        let updatedPlayers = [...prev.players];
+        let updatedLogs = [...prev.logs];
+        const botIdx = updatedPlayers.findIndex(p => p.clientId === randomBot.clientId);
+        if (botIdx === -1) return prev;
+
+        const currentBot = updatedPlayers[botIdx];
+
+        if (isCorrect) {
+          // Determine reward
+          const rewardRoll = Math.random();
+          if (rewardRoll < 0.15) {
+            // Steal action!
+            const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
+            if (targets.length > 0) {
+              const target = targets[Math.floor(Math.random() * targets.length)];
+              const isTargetMe = target.clientId === clientId;
+              const stealPct = Math.random() < 0.5 ? 0.25 : 0.5;
+              const stealAmount = Math.round(target.gold * stealPct);
+
+              if (target.shieldCount > 0) {
+                // Blocked
+                const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
+                updatedPlayers[targetIdx] = {
+                  ...target,
+                  shieldCount: target.shieldCount - 1,
+                };
+                updatedLogs.unshift(`🛡️ ${target.name} blocked ${currentBot.name}'s queue hijack!`);
+                if (isTargetMe) {
+                  showToast(`Your Empathy Shield blocked a queue hijack from ${currentBot.name}! 🛡️`, 'success');
+                  sounds.playShield();
+                  setPlayer(p => ({ ...p, shieldCount: p.shieldCount - 1 }));
+                }
+              } else {
+                // Success
+                const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
+                updatedPlayers[targetIdx] = {
+                  ...target,
+                  gold: Math.max(0, target.gold - stealAmount),
+                };
+                updatedPlayers[botIdx] = {
+                  ...currentBot,
+                  gold: currentBot.gold + stealAmount,
+                  streak: (currentBot.streak || 0) + 1,
+                };
+                updatedLogs.unshift(`🥷 ${currentBot.name} hijacked ${target.name}'s ticket pool and swiped 🪙 ${stealAmount.toLocaleString()} gold!`);
+                if (isTargetMe) {
+                  showToast(`🥷 ${currentBot.name} hijacked your tickets and swiped 🪙 ${stealAmount} gold!`, 'warning');
+                  sounds.playIncorrect();
+                  setPlayer(p => ({ ...p, gold: Math.max(0, p.gold - stealAmount) }));
+                }
+              }
+            }
+          } else if (rewardRoll < 0.22) {
+            // Swap action!
+            const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
+            if (targets.length > 0) {
+              const target = targets[Math.floor(Math.random() * targets.length)];
+              const isTargetMe = target.clientId === clientId;
+
+              const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
+              const botGold = currentBot.gold;
+              const targetGold = target.gold;
+
+              updatedPlayers[botIdx] = {
+                ...currentBot,
+                gold: targetGold,
+                streak: (currentBot.streak || 0) + 1,
+              };
+              updatedPlayers[targetIdx] = {
+                ...target,
+                gold: botGold,
+              };
+
+              updatedLogs.unshift(`🔄 ${currentBot.name} swapped active tickets with ${target.name}! Balance swapped!`);
+              if (isTargetMe) {
+                showToast(`🔄 ${currentBot.name} swapped active tickets with you! Your gold is now 🪙 ${botGold.toLocaleString()}!`, 'info');
+                sounds.playCoins();
+                setPlayer(p => ({ ...p, gold: botGold }));
+              }
+            }
+          } else {
+            // Normal gold addition
+            const earned = Math.floor(150 + Math.random() * 200);
+            updatedPlayers[botIdx] = {
+              ...currentBot,
+              gold: currentBot.gold + earned,
+              correctAnswers: currentBot.correctAnswers + 1,
+              totalAnswered: currentBot.totalAnswered + 1,
+              streak: (currentBot.streak || 0) + 1,
+              highestStreak: Math.max(currentBot.highestStreak || 0, (currentBot.streak || 0) + 1),
+            };
+            updatedLogs.unshift(`🪙 ${currentBot.name} resolved a complex case. +${earned} Gold!`);
+          }
+        } else {
+          // Incorrect
+          updatedPlayers[botIdx] = {
+            ...currentBot,
+            totalAnswered: currentBot.totalAnswered + 1,
+            streak: 0,
+          };
+          updatedLogs.unshift(`⚠️ ${currentBot.name} spent extra time researching standard guidelines.`);
+        }
+
+        return {
+          ...prev,
+          players: updatedPlayers,
+          logs: updatedLogs,
+        };
+      });
+    }, 3200);
+
+    return () => clearInterval(interval);
+  }, [isSimulatedMultiplayer, multiplayerGame?.status]);
+
+  // Local simulated multiplayer synchronization and player sync
+  useEffect(() => {
+    if (!isSimulatedMultiplayer || !multiplayerGame) return;
+
+    // Sync competitors
+    const mappedCompetitors = multiplayerGame.players
+      .filter((p: any) => p.clientId !== clientId)
+      .map((p: any) => ({
+        id: p.clientId,
+        name: p.name,
+        avatar: p.avatar,
+        avatarEmoji: p.avatarEmoji,
+        role: p.isFinished ? 'Clocked Out' : `Streak: ${p.streak || 0} 🔥`,
+        gold: p.gold,
+        accuracy: p.totalAnswered > 0 ? p.correctAnswers / p.totalAnswered : 0.8,
+        shieldCount: p.shieldCount,
+      }));
+    setCompetitors(mappedCompetitors);
+
+    // Sync logs / bot events
+    setRecentBotEvents(multiplayerGame.logs);
+
+    // If host
+    if (multiplayerMode === 'multiplayer_host') {
+      if (multiplayerGame.status === 'playing') {
+        setPhase('host_dashboard');
+      } else if (multiplayerGame.status === 'ended') {
+        setPhase('summary');
+      } else {
+        setPhase('lobby');
+      }
+    }
+
+    // If player
+    if (multiplayerMode === 'multiplayer_player') {
+      if (multiplayerGame.status === 'lobby') {
+        setPhase('lobby');
+      } else if (multiplayerGame.status === 'playing') {
+        if (phase === 'welcome' || phase === 'lobby') {
+          // Initialize player stats from simulated game
+          const me = multiplayerGame.players.find((p: any) => p.clientId === clientId);
+          if (me) {
+            setPlayer({
+              name: me.name,
+              avatar: me.avatar,
+              avatarEmoji: me.avatarEmoji,
+              gold: me.gold,
+              shieldCount: me.shieldCount,
+              correctAnswers: me.correctAnswers,
+              totalAnswered: me.totalAnswered,
+              streak: me.streak || 0,
+              highestStreak: me.highestStreak || 0,
+              doubleNext: false,
+              tripleNext: false,
+            });
+          }
+          setGameLength(multiplayerGame.gameLength);
+          const shuffled = prepareQuestionPool(questions);
+          setQuestionPool(shuffled);
+          setCurrentQuestionIdx(0);
+          setPhase('playing');
+          sounds.playUnlock();
+        } else {
+          // Sync player's gold and shields if updated from a bot steal/swap
+          const me = multiplayerGame.players.find((p: any) => p.clientId === clientId);
+          if (me) {
+            setPlayer(prev => {
+              return {
+                ...prev,
+                gold: me.gold,
+                shieldCount: me.shieldCount,
+              };
+            });
+          }
+        }
+      } else if (multiplayerGame.status === 'ended') {
+        setPhase('summary');
+      }
+    }
+  }, [isSimulatedMultiplayer, multiplayerGame, multiplayerMode, clientId]);
 
   // Handle Game Setup
   const handleStartGame = (
@@ -469,8 +730,13 @@ export default function App() {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.success) {
+        setIsSimulatedMultiplayer(false);
         setGameId(roomCode);
         setMultiplayerMode('multiplayer_player');
         setPhase('lobby');
@@ -482,8 +748,43 @@ export default function App() {
         return data.message || 'Could not join room';
       }
     } catch (err) {
-      console.error(err);
-      return 'Server error joining session. Please check your connection.';
+      console.warn('Multiplayer join API failed, falling back to simulated local multiplayer lobby:', err);
+      setIsSimulatedMultiplayer(true);
+      const targetRoomCode = roomCode || 'SIMUL8';
+      setGameId(targetRoomCode);
+      setMultiplayerMode('multiplayer_player');
+      setPhase('lobby');
+
+      const initialGame: MultiplayerGame = {
+        gameId: targetRoomCode,
+        status: 'lobby',
+        mode: 'gold_quest',
+        hostClientId: 'SIM_HOST',
+        players: [
+          {
+            clientId,
+            name: nickname,
+            avatar: avatarName,
+            avatarEmoji,
+            gold: 0,
+            correctAnswers: 0,
+            totalAnswered: 0,
+            shieldCount: 0,
+            streak: 0,
+            highestStreak: 0,
+            isFinished: false,
+            lastActive: Date.now(),
+          }
+        ],
+        logs: ['Successfully clocked into the simulated training floor! Waiting for other advocates...'],
+        createdAt: Date.now(),
+        gameLength: 10,
+        durationSeconds: 180,
+      };
+      setMultiplayerGame(initialGame);
+      showToast('Static server detected. Launched in Local Simulated Lobby Mode! 🚀', 'success');
+      sounds.playUnlock();
+      return null;
     }
   };
 
@@ -504,8 +805,13 @@ export default function App() {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error(`Server returned status ${res.status}`);
+      }
+
       const data = await res.json();
       if (data.success && data.game) {
+        setIsSimulatedMultiplayer(false);
         setGameId(data.game.gameId);
         setMultiplayerMode('multiplayer_host');
         setPhase('lobby');
@@ -517,8 +823,28 @@ export default function App() {
         return data.message || 'Could not create multiplayer session';
       }
     } catch (err) {
-      console.error(err);
-      return 'Server error hosting session.';
+      console.warn('Multiplayer host API failed, falling back to simulated local multiplayer host:', err);
+      setIsSimulatedMultiplayer(true);
+      const mockGameId = 'SIMUL8';
+      setGameId(mockGameId);
+      setMultiplayerMode('multiplayer_host');
+      setPhase('lobby');
+
+      const initialGame: MultiplayerGame = {
+        gameId: mockGameId,
+        status: 'lobby',
+        mode: mode === 'gold_quest' ? 'gold_quest' : 'speed_race',
+        hostClientId: clientId,
+        players: [],
+        logs: ['Simulated lobby spawned. Waiting for local simulated advocates to clock in...'],
+        createdAt: Date.now(),
+        gameLength,
+        durationSeconds,
+      };
+      setMultiplayerGame(initialGame);
+      showToast('Static server detected. Spawned Local Simulated Lobby! 👑', 'success');
+      sounds.playUnlock();
+      return null;
     }
   };
 
@@ -580,11 +906,31 @@ export default function App() {
     }
 
     if (multiplayerMode === 'multiplayer_player') {
-      fetch('/api/multiplayer/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, clientId, isCorrect: correct }),
-      }).catch(err => console.error('Error submitting answer:', err));
+      if (isSimulatedMultiplayer) {
+        setMultiplayerGame(prev => {
+          if (!prev) return null;
+          const updated = prev.players.map(p => {
+            if (p.clientId === clientId) {
+              const nextStreak = correct ? ((p.streak || 0) + 1) : 0;
+              return {
+                ...p,
+                correctAnswers: p.correctAnswers + (correct ? 1 : 0),
+                totalAnswered: p.totalAnswered + 1,
+                streak: nextStreak,
+                highestStreak: Math.max(p.highestStreak || 0, nextStreak),
+              };
+            }
+            return p;
+          });
+          return { ...prev, players: updated };
+        });
+      } else {
+        fetch('/api/multiplayer/answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameId, clientId, isCorrect: correct }),
+        }).catch(err => console.error('Error submitting answer:', err));
+      }
     }
 
     if (correct) {
@@ -765,11 +1111,39 @@ export default function App() {
           finalReward.value *= 2;
         }
       }
-      fetch('/api/multiplayer/chest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameId, clientId, reward: finalReward }),
-      }).catch(err => console.error('Error submitting chest:', err));
+      if (isSimulatedMultiplayer) {
+        setMultiplayerGame(prev => {
+          if (!prev) return null;
+          const updated = prev.players.map(p => {
+            if (p.clientId === clientId) {
+              let gained = finalReward.type === 'gold_add' ? finalReward.value : 0;
+              let currentGold = p.gold;
+              if (finalReward.type === 'gold_add') {
+                currentGold += gained;
+              } else {
+                currentGold = Math.round(currentGold * finalReward.value);
+              }
+              return {
+                ...p,
+                gold: currentGold,
+                shieldCount: p.shieldCount,
+              };
+            }
+            return p;
+          });
+          return {
+            ...prev,
+            players: updated,
+            logs: [`🎁 You opened a chest and got: ${reward.label}!`, ...prev.logs],
+          };
+        });
+      } else {
+        fetch('/api/multiplayer/chest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameId, clientId, reward: finalReward }),
+        }).catch(err => console.error('Error submitting chest:', err));
+      }
     }
 
     // Clear reward and progress after small timing window
@@ -782,16 +1156,83 @@ export default function App() {
     if (!targetingAction || !activeChestReward) return;
 
     if (multiplayerMode === 'multiplayer_player') {
-      fetch('/api/multiplayer/chest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gameId,
-          clientId,
-          reward: activeChestReward,
-          targetClientId: targetId,
-        }),
-      }).catch(err => console.error('Error executing targeting reward:', err));
+      if (isSimulatedMultiplayer) {
+        const targetBot = multiplayerGame?.players.find(p => p.clientId === targetId);
+        if (targetBot) {
+          setMultiplayerGame(prev => {
+            if (!prev) return null;
+            let updatedPlayers = [...prev.players];
+            let updatedLogs = [...prev.logs];
+            
+            const myIdx = updatedPlayers.findIndex(p => p.clientId === clientId);
+            const targetIdx = updatedPlayers.findIndex(p => p.clientId === targetId);
+            
+            const me = updatedPlayers[myIdx];
+            const bot = updatedPlayers[targetIdx];
+            
+            if (targetingAction === 'steal') {
+              const stealAmount = Math.round(bot.gold * activeChestReward.value);
+              if (bot.shieldCount > 0) {
+                // Blocked
+                updatedPlayers[targetIdx] = { ...bot, shieldCount: bot.shieldCount - 1 };
+                updatedLogs.unshift(`🛡️ ${bot.name} blocked your queue hijack with a Shield!`);
+                showToast(`${bot.name} blocked your queue hijack with a Shield! 🛡️`, 'warning');
+                sounds.playShield();
+              } else {
+                // Success
+                let finalSteal = stealAmount;
+                let bonusText = '';
+                if (player.avatar === 'Rapport Frog') {
+                  const bonus = Math.round(stealAmount * 0.15);
+                  finalSteal += bonus;
+                  bonusText = ` (+${bonus} Rapport Bonus!)`;
+                  setTimeout(() => {
+                    showToast("🐸 Rapport Frog Specialty: +15% Rapport Boost on queue steal! 🤝", "success");
+                  }, 300);
+                }
+                
+                updatedPlayers[targetIdx] = { ...bot, gold: Math.max(0, bot.gold - stealAmount) };
+                updatedPlayers[myIdx] = { ...me, gold: me.gold + finalSteal };
+                updatedLogs.unshift(`🥷 You hijacked ${bot.name}'s ticket pool and swiped 🪙 ${finalSteal} gold!${bonusText}`);
+                showToast(`Stole 🪙 ${finalSteal} from ${bot.name}!${bonusText} 🥷`, 'success');
+                sounds.playCoins();
+                
+                // Update single player state too
+                setPlayer(p => ({ ...p, gold: p.gold + finalSteal }));
+              }
+            } else if (targetingAction === 'swap') {
+              const myGold = me.gold;
+              const botGold = bot.gold;
+              
+              updatedPlayers[myIdx] = { ...me, gold: botGold };
+              updatedPlayers[targetIdx] = { ...bot, gold: myGold };
+              
+              updatedLogs.unshift(`🔄 You swapped active tickets with ${bot.name}!`);
+              showToast(`Swapped balance with ${bot.name}! Balance is now 🪙 ${botGold}! 🔄`, 'success');
+              sounds.playCoins();
+              
+              setPlayer(p => ({ ...p, gold: botGold }));
+            }
+            
+            return {
+              ...prev,
+              players: updatedPlayers,
+              logs: updatedLogs,
+            };
+          });
+        }
+      } else {
+        fetch('/api/multiplayer/chest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gameId,
+            clientId,
+            reward: activeChestReward,
+            targetClientId: targetId,
+          }),
+        }).catch(err => console.error('Error executing targeting reward:', err));
+      }
 
       setTargetingAction(null);
       setActiveChestReward(null);
@@ -955,9 +1396,23 @@ export default function App() {
             <MultiplayerLobby
               gameId={gameId}
               players={multiplayerGame?.players || []}
-              maxPlayers={10}
+              activeClientId={clientId}
               isHost={multiplayerMode === 'multiplayer_host'}
+              isSimulated={isSimulatedMultiplayer}
               onStartGame={async () => {
+                if (isSimulatedMultiplayer) {
+                  setMultiplayerGame(prev => {
+                    if (!prev) return null;
+                    return {
+                      ...prev,
+                      status: 'playing',
+                      startTime: Date.now(),
+                      logs: ['The host started the training shift! Go solve scenarios! 🚀', ...prev.logs],
+                    };
+                  });
+                  sounds.playUnlock();
+                  return;
+                }
                 await fetch('/api/multiplayer/start', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
