@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Think Like a Top CSAT Performer",
+  "description": "A gamified Blooket-style Gold Quest learning challenge to master customer support best practices and CSAT principles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
