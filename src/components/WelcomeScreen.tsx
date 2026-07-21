@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Volume2, VolumeX, ShieldAlert, Award, Star, BookOpen, Play } from 'lucide-react';
+import { Volume2, VolumeX, ShieldAlert, Award, Star, BookOpen, Play, Clock } from 'lucide-react';
 
 interface AvatarOption {
   emoji: string;
@@ -39,7 +39,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onToggleMute,
   initialJoinCode = '',
 }) => {
-  const [activeTab, setActiveTab] = useState<'solo' | 'join' | 'host'>(initialJoinCode ? 'join' : 'solo');
+  const [activeTab, setActiveTab] = useState<'solo' | 'join' | 'host'>('solo');
   const [name, setName] = useState('');
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
   const [gameLength, setGameLength] = useState<number | 'endless'>(10);
@@ -53,7 +53,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   React.useEffect(() => {
     if (initialJoinCode) {
       setJoinCode(initialJoinCode);
-      setActiveTab('join');
     }
   }, [initialJoinCode]);
 
@@ -136,28 +135,37 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         className="w-full bg-slate-900/90 border-2 border-slate-700/80 rounded-3xl p-6 md:p-8 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] backdrop-blur-md space-y-6"
       >
         {/* Navigation Tabs */}
-        <div className="grid grid-cols-3 gap-2 p-1.5 bg-slate-950/80 rounded-2xl border border-slate-800">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 bg-slate-950/80 rounded-2xl border border-slate-800">
           {[
-            { id: 'solo', label: '🎮 Practice Solo' },
-            { id: 'join', label: '🤝 Join Room' },
-            { id: 'host', label: '👑 Host Room' },
+            { id: 'solo', label: '🎮 Practice Solo', isSoon: false },
+            { id: 'join', label: '🤝 Join Room', isSoon: true },
+            { id: 'host', label: '👑 Host Room', isSoon: true },
           ].map((tab) => {
             const isSelected = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 type="button"
+                disabled={tab.isSoon}
                 onClick={() => {
+                  if (tab.isSoon) return;
                   setActiveTab(tab.id as any);
                   setJoinError(null);
                 }}
-                className={`py-3 px-2 rounded-xl text-xs md:text-sm font-extrabold uppercase transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-indigo-600 text-white shadow-lg'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                className={`py-3 px-3 rounded-xl text-xs md:text-sm font-extrabold uppercase transition-all flex flex-col sm:flex-row items-center justify-center gap-1.5 ${
+                  tab.isSoon
+                    ? 'opacity-60 cursor-not-allowed text-slate-500 bg-slate-950/40 border border-slate-850'
+                    : isSelected
+                    ? 'bg-indigo-600 text-white shadow-lg cursor-pointer'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900 cursor-pointer'
                 }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {tab.isSoon && (
+                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                    Coming Soon
+                  </span>
+                )}
               </button>
             );
           })}
@@ -356,12 +364,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             {/* Action Trigger */}
             <div className="pt-4">
               <button
-                type="submit"
-                disabled={isJoining}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 disabled:opacity-50 text-white font-black font-sans uppercase text-lg py-5 px-8 rounded-2xl shadow-[0_8px_20px_-4px_rgba(99,102,241,0.4)] flex items-center justify-center gap-2 cursor-pointer transition-all border-b-4 border-indigo-700 active:scale-95"
+                type="button"
+                disabled={true}
+                className="w-full bg-slate-800/80 border-2 border-slate-700 text-slate-400 font-bold font-sans uppercase text-base py-5 px-8 rounded-2xl flex items-center justify-center gap-2 cursor-not-allowed opacity-75 shadow-none"
               >
-                <Play className="w-5 h-5 fill-white" />
-                <span>{isJoining ? 'Connecting...' : 'Connect & Join Lobby'}</span>
+                <Clock className="w-5 h-5 text-amber-400" />
+                <span>Join Room — Coming Soon (Demo Mode)</span>
               </button>
             </div>
           </form>
@@ -466,12 +474,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             {/* Action Trigger */}
             <div className="pt-4">
               <button
-                type="submit"
-                disabled={isHosting}
-                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 text-emerald-950 font-black font-sans uppercase text-lg py-5 px-8 rounded-2xl shadow-[0_8px_20px_-4px_rgba(16,185,129,0.4)] flex items-center justify-center gap-2 cursor-pointer transition-all border-b-4 border-emerald-700 active:scale-95"
+                type="button"
+                disabled={true}
+                className="w-full bg-slate-800/80 border-2 border-slate-700 text-slate-400 font-bold font-sans uppercase text-base py-5 px-8 rounded-2xl flex items-center justify-center gap-2 cursor-not-allowed opacity-75 shadow-none"
               >
-                <Play className="w-5 h-5 fill-emerald-950" />
-                <span>{isHosting ? 'Spawning Lobby...' : 'Host Training Arena'}</span>
+                <Clock className="w-5 h-5 text-amber-400" />
+                <span>Host Arena — Coming Soon (Demo Mode)</span>
               </button>
             </div>
           </form>
