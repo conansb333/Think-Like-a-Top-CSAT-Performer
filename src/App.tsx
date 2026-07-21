@@ -15,6 +15,16 @@ import { SummaryScreen } from './components/SummaryScreen';
 import { MultiplayerLobby } from './components/MultiplayerLobby';
 import { HostDashboard } from './components/HostDashboard';
 import { 
+  createFirestoreGame, 
+  joinFirestoreGame, 
+  startFirestoreGame, 
+  submitFirestoreAnswer, 
+  submitFirestoreChestReward, 
+  endFirestoreGame, 
+  subscribeToFirestoreGame,
+  sendPlayerHeartbeat
+} from './firebase';
+import { 
   Shield, 
   Coins, 
   Sparkles, 
@@ -245,135 +255,126 @@ export default function App() {
     return () => clearInterval(interval);
   }, [phase, multiplayerMode]);
 
-  // Polling for Multiplayer state
+  // Real-time Firestore Multiplayer State Synchronizer
   useEffect(() => {
     if (!multiplayerMode || multiplayerMode === 'single_player' || !gameId) return;
-    if (isSimulatedMultiplayer) return; // Skip real network polling in local simulation mode!
+    if (isSimulatedMultiplayer) return; // Skip in simulated mode!
 
-    let isSubscribed = true;
+    console.log("🔔 Subscribing to Firestore room:", gameId);
     
-    const pollRoom = async () => {
-      try {
-        const res = await fetch(`/api/multiplayer/room/${gameId}?clientId=${clientId}`);
-        if (!res.ok) {
-          if (res.status === 404) {
-            showToast('The game session has been closed by the host.', 'warning');
-            setPhase('welcome');
-            setMultiplayerMode(null);
-          }
-          return;
-        }
-        const responseData = await res.json();
-        if (!isSubscribed) return;
-
-        if (responseData.success && responseData.game) {
-          const game = responseData.game;
-          setMultiplayerGame(game);
-
-          // Map competitors from other players in the room
-          const mappedCompetitors = game.players
-            .filter((p: any) => p.clientId !== clientId)
-            .map((p: any) => ({
-              id: p.clientId,
-              name: p.name,
-              avatar: p.avatar,
-              avatarEmoji: p.avatarEmoji,
-              role: p.isFinished ? 'Clocked Out' : `Streak: ${p.streak || 0} 🔥`,
-              gold: p.gold,
-              accuracy: p.totalAnswered > 0 ? p.correctAnswers / p.totalAnswered : 0.8,
-              shieldCount: p.shieldCount,
-            }));
-          setCompetitors(mappedCompetitors);
-
-          // Update host logs/feed
-          if (multiplayerMode === 'multiplayer_host') {
-            setRecentBotEvents(game.logs);
-            if (game.status === 'playing') {
-              setPhase('host_dashboard');
-            } else if (game.status === 'ended') {
-              setPhase('summary');
-            } else {
-              setPhase('lobby');
-            }
-          }
-
-          // Update player phase and state based on server
-          if (multiplayerMode === 'multiplayer_player') {
-            if (game.status === 'lobby') {
-              setPhase('lobby');
-            } else if (game.status === 'playing') {
-              if (phase === 'welcome' || phase === 'lobby') {
-                // Initialize player stats from server
-                const me = game.players.find((p: any) => p.clientId === clientId);
-                if (me) {
-                  setPlayer({
-                    name: me.name,
-                    avatar: me.avatar,
-                    avatarEmoji: me.avatarEmoji,
-                    gold: me.gold,
-                    shieldCount: me.shieldCount,
-                    correctAnswers: me.correctAnswers,
-                    totalAnswered: me.totalAnswered,
-                    streak: me.streak || 0,
-                    highestStreak: me.highestStreak || 0,
-                    doubleNext: false,
-                    tripleNext: false,
-                  });
-                }
-                
-                setGameLength(game.gameLength);
-                const shuffled = prepareQuestionPool(questions);
-                setQuestionPool(shuffled);
-                setCurrentQuestionIdx(0);
-                setPhase('playing');
-                sounds.playUnlock();
-              } else {
-                // Sync status from server in case of steal / swap / detractor survey hits
-                const me = game.players.find((p: any) => p.clientId === clientId);
-                if (me) {
-                  setPlayer(prev => {
-                    // Alert player if shield was consumed or gold changed significantly
-                    if (prev.shieldCount > me.shieldCount) {
-                      showToast('Your Empathy Shield blocked a hijack attempt! 🛡️', 'warning');
-                      sounds.playShield();
-                    }
-                    if (prev.gold !== me.gold) {
-                      const diff = me.gold - prev.gold;
-                      if (diff < 0) {
-                        sounds.playIncorrect();
-                      } else if (diff > 0 && prev.totalAnswered === me.totalAnswered) {
-                        // Received gold from somewhere without answering (maybe swap or steal bonus)
-                        sounds.playCoins();
-                      }
-                    }
-                    return {
-                      ...prev,
-                      gold: me.gold,
-                      shieldCount: me.shieldCount,
-                      correctAnswers: me.correctAnswers,
-                      totalAnswered: me.totalAnswered,
-                      streak: me.streak || 0,
-                      highestStreak: Math.max(prev.highestStreak || 0, me.highestStreak || 0),
-                    };
-                  });
-                }
-              }
-            } else if (game.status === 'ended') {
-              setPhase('summary');
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error polling room:', err);
+    const unsubscribe = subscribeToFirestoreGame(gameId, (game) => {
+      if (!game) {
+        showToast('The game session has been closed or does not exist.', 'warning');
+        setPhase('welcome');
+        setMultiplayerMode(null);
+        return;
       }
-    };
 
-    pollRoom();
-    const interval = setInterval(pollRoom, 1500);
+      setMultiplayerGame(game);
+
+      // Map competitors from other players in the room
+      const mappedCompetitors = game.players
+        .filter((p: any) => p.clientId !== clientId)
+        .map((p: any) => ({
+          id: p.clientId,
+          name: p.name,
+          avatar: p.avatar,
+          avatarEmoji: p.avatarEmoji,
+          role: p.isFinished ? 'Clocked Out 🏁' : `Streak: ${p.streak || 0} 🔥`,
+          gold: p.gold,
+          accuracy: p.totalAnswered > 0 ? p.correctAnswers / p.totalAnswered : 0.8,
+          shieldCount: p.shieldCount,
+        }));
+      setCompetitors(mappedCompetitors);
+
+      // Update host dashboard logs and route phases
+      if (multiplayerMode === 'multiplayer_host') {
+        setRecentBotEvents(game.logs);
+        if (game.status === 'playing') {
+          setPhase('host_dashboard');
+        } else if (game.status === 'ended') {
+          setPhase('summary');
+        } else {
+          setPhase('lobby');
+        }
+      }
+
+      // Sync active player stats and navigate phases based on game document updates
+      if (multiplayerMode === 'multiplayer_player') {
+        if (game.status === 'lobby') {
+          setPhase('lobby');
+        } else if (game.status === 'playing') {
+          if (phase === 'welcome' || phase === 'lobby') {
+            // First time transitioning to playing - configure active player statistics from lobby choice
+            const me = game.players.find((p: any) => p.clientId === clientId);
+            if (me) {
+              setPlayer({
+                name: me.name,
+                avatar: me.avatar,
+                avatarEmoji: me.avatarEmoji,
+                gold: me.gold,
+                shieldCount: me.shieldCount,
+                correctAnswers: me.correctAnswers,
+                totalAnswered: me.totalAnswered,
+                streak: me.streak || 0,
+                highestStreak: me.highestStreak || 0,
+                doubleNext: false,
+                tripleNext: false,
+              });
+            }
+            
+            setGameLength(game.gameLength);
+            const shuffled = prepareQuestionPool(questions);
+            setQuestionPool(shuffled);
+            setCurrentQuestionIdx(0);
+            setPhase('playing');
+            sounds.playUnlock();
+          } else {
+            // Actively playing: synchronize state changes (hijacks, swaps, shields) from other players
+            const me = game.players.find((p: any) => p.clientId === clientId);
+            if (me) {
+              setPlayer(prev => {
+                if (prev.shieldCount > me.shieldCount) {
+                  showToast('Your Empathy Shield blocked a hijack attempt! 🛡️', 'warning');
+                  sounds.playShield();
+                }
+                if (prev.gold !== me.gold) {
+                  const diff = me.gold - prev.gold;
+                  if (diff < 0) {
+                    sounds.playIncorrect();
+                  } else if (diff > 0 && prev.totalAnswered === me.totalAnswered) {
+                    sounds.playCoins();
+                  }
+                }
+                return {
+                  ...prev,
+                  gold: me.gold,
+                  shieldCount: me.shieldCount,
+                  correctAnswers: me.correctAnswers,
+                  totalAnswered: me.totalAnswered,
+                  streak: me.streak || 0,
+                  highestStreak: Math.max(prev.highestStreak || 0, me.highestStreak || 0),
+                };
+              });
+            }
+          }
+        } else if (game.status === 'ended') {
+          setPhase('summary');
+        }
+      }
+    });
+
+    // Send a regular heartbeat to keep this player listed as active
+    const heartbeatInterval = setInterval(() => {
+      sendPlayerHeartbeat(gameId, clientId).catch(err => {
+        console.warn("Heartbeat error:", err);
+      });
+    }, 15000);
 
     return () => {
-      isSubscribed = false;
-      clearInterval(interval);
+      console.log("🔌 Unsubscribing from Firestore room:", gameId);
+      unsubscribe();
+      clearInterval(heartbeatInterval);
     };
   }, [multiplayerMode, gameId, clientId, phase, isSimulatedMultiplayer]);
 
@@ -718,37 +719,26 @@ export default function App() {
     avatarName: string
   ): Promise<string | null> => {
     try {
-      const res = await fetch('/api/multiplayer/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          gameId: roomCode,
-          clientId,
-          name: nickname,
-          avatar: avatarName,
-          avatarEmoji,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
+      setIsSimulatedMultiplayer(false);
+      const joinedGame = await joinFirestoreGame(roomCode, clientId, nickname, avatarName, avatarEmoji);
+      
+      setGameId(roomCode);
+      setMultiplayerMode('multiplayer_player');
+      setPhase('lobby');
+      setMultiplayerGame(joinedGame);
+      showToast('Successfully connected to the training floor!', 'success');
+      sounds.playUnlock();
+      return null;
+    } catch (err: any) {
+      console.warn('Firestore join failed:', err);
+      const errMessage = err?.message || 'Could not join room';
+      
+      // If the error was explicitly "room not found" or "room full", bubble it up to the user instead of silently falling back
+      if (errMessage.includes("double check") || errMessage.includes("full") || errMessage.includes("already started") || errMessage.includes("taken")) {
+        return errMessage;
       }
 
-      const data = await res.json();
-      if (data.success) {
-        setIsSimulatedMultiplayer(false);
-        setGameId(roomCode);
-        setMultiplayerMode('multiplayer_player');
-        setPhase('lobby');
-        setMultiplayerGame(data.game);
-        showToast('Successfully connected to the training floor!', 'success');
-        sounds.playUnlock();
-        return null;
-      } else {
-        return data.message || 'Could not join room';
-      }
-    } catch (err) {
-      console.warn('Multiplayer join API failed, falling back to simulated local multiplayer lobby:', err);
+      console.log("Falling back to local simulated lobby...");
       setIsSimulatedMultiplayer(true);
       const targetRoomCode = roomCode || 'SIMUL8';
       setGameId(targetRoomCode);
@@ -782,7 +772,7 @@ export default function App() {
         durationSeconds: 180,
       };
       setMultiplayerGame(initialGame);
-      showToast('Static server detected. Launched in Local Simulated Lobby Mode! 🚀', 'success');
+      showToast('Offline Mode detected. Launched in Local Simulated Lobby! 🚀', 'success');
       sounds.playUnlock();
       return null;
     }
@@ -794,36 +784,26 @@ export default function App() {
     durationSeconds: number
   ): Promise<string | null> => {
     try {
-      const res = await fetch('/api/multiplayer/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: mode === 'gold_quest' ? 'gold_quest' : 'speed_race',
-          gameLength,
-          durationSeconds,
-          hostClientId: clientId,
-        }),
-      });
+      setIsSimulatedMultiplayer(false);
+      const roomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      const gameData = await createFirestoreGame(
+        roomCode,
+        clientId,
+        mode === 'gold_quest' ? 'gold_quest' : 'speed_race',
+        gameLength,
+        durationSeconds
+      );
 
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (data.success && data.game) {
-        setIsSimulatedMultiplayer(false);
-        setGameId(data.game.gameId);
-        setMultiplayerMode('multiplayer_host');
-        setPhase('lobby');
-        setMultiplayerGame(data.game);
-        showToast('Multiplayer training lobby created!', 'success');
-        sounds.playUnlock();
-        return null;
-      } else {
-        return data.message || 'Could not create multiplayer session';
-      }
-    } catch (err) {
-      console.warn('Multiplayer host API failed, falling back to simulated local multiplayer host:', err);
+      setGameId(roomCode);
+      setMultiplayerMode('multiplayer_host');
+      setPhase('lobby');
+      setMultiplayerGame(gameData);
+      showToast('Multiplayer training lobby created! share the code with real players.', 'success');
+      sounds.playUnlock();
+      return null;
+    } catch (err: any) {
+      console.warn('Firestore host failed, falling back to simulated local multiplayer host:', err);
       setIsSimulatedMultiplayer(true);
       const mockGameId = 'SIMUL8';
       setGameId(mockGameId);
@@ -842,7 +822,7 @@ export default function App() {
         durationSeconds,
       };
       setMultiplayerGame(initialGame);
-      showToast('Static server detected. Spawned Local Simulated Lobby! 👑', 'success');
+      showToast('Offline Mode detected. Spawned Local Simulated Lobby! 👑', 'success');
       sounds.playUnlock();
       return null;
     }
@@ -906,6 +886,7 @@ export default function App() {
     }
 
     if (multiplayerMode === 'multiplayer_player') {
+      const isFinished = gameLength !== 'endless' && (currentQuestionIdx + 1) >= Number(gameLength);
       if (isSimulatedMultiplayer) {
         setMultiplayerGame(prev => {
           if (!prev) return null;
@@ -925,11 +906,9 @@ export default function App() {
           return { ...prev, players: updated };
         });
       } else {
-        fetch('/api/multiplayer/answer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gameId, clientId, isCorrect: correct }),
-        }).catch(err => console.error('Error submitting answer:', err));
+        submitFirestoreAnswer(gameId, clientId, correct, isFinished).catch(err => {
+          console.error('Error submitting answer to Firestore:', err);
+        });
       }
     }
 
@@ -1138,11 +1117,9 @@ export default function App() {
           };
         });
       } else {
-        fetch('/api/multiplayer/chest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ gameId, clientId, reward: finalReward }),
-        }).catch(err => console.error('Error submitting chest:', err));
+        submitFirestoreChestReward(gameId, clientId, finalReward).catch(err => {
+          console.error('Error submitting chest to Firestore:', err);
+        });
       }
     }
 
@@ -1222,16 +1199,14 @@ export default function App() {
           });
         }
       } else {
-        fetch('/api/multiplayer/chest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            gameId,
-            clientId,
-            reward: activeChestReward,
-            targetClientId: targetId,
-          }),
-        }).catch(err => console.error('Error executing targeting reward:', err));
+        submitFirestoreChestReward(
+          gameId,
+          clientId,
+          { type: targetingAction, value: activeChestReward.value },
+          targetId
+        ).catch(err => {
+          console.error('Error executing targeting reward in Firestore:', err);
+        });
       }
 
       setTargetingAction(null);
@@ -1413,10 +1388,8 @@ export default function App() {
                   sounds.playUnlock();
                   return;
                 }
-                await fetch('/api/multiplayer/start', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ gameId, hostClientId: clientId }),
+                await startFirestoreGame(gameId).catch(err => {
+                  console.error("Error starting Firestore game:", err);
                 });
               }}
               onLeave={handleRestart}
@@ -1431,10 +1404,8 @@ export default function App() {
               durationSeconds={multiplayerGame?.durationSeconds || 180}
               startTime={multiplayerGame?.startTime}
               onEndGame={async () => {
-                await fetch('/api/multiplayer/end', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ gameId, hostClientId: clientId }),
+                await endFirestoreGame(gameId).catch(err => {
+                  console.error("Error ending Firestore game:", err);
                 });
               }}
             />
