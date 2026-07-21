@@ -27,7 +27,8 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const [copied, setCopied] = React.useState(false);
 
   const handleCopyCode = () => {
-    navigator.clipboard.writeText(gameId);
+    const inviteUrl = `${window.location.origin}?join=${gameId}`;
+    navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

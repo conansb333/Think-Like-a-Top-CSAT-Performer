@@ -28,6 +28,7 @@ interface WelcomeScreenProps {
   onHostMultiplayer: (mode: 'gold_quest' | 'case_race', gameLength: number, durationSeconds: number) => Promise<string | null>;
   isMuted: boolean;
   onToggleMute: () => void;
+  initialJoinCode?: string;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
@@ -36,16 +37,25 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onHostMultiplayer,
   isMuted,
   onToggleMute,
+  initialJoinCode = '',
 }) => {
-  const [activeTab, setActiveTab] = useState<'solo' | 'join' | 'host'>('solo');
+  const [activeTab, setActiveTab] = useState<'solo' | 'join' | 'host'>(initialJoinCode ? 'join' : 'solo');
   const [name, setName] = useState('');
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
   const [gameLength, setGameLength] = useState<number | 'endless'>(10);
   
   // Multiplayer Join States
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState(initialJoinCode);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
+
+  // Sync initialJoinCode if it updates dynamically
+  React.useEffect(() => {
+    if (initialJoinCode) {
+      setJoinCode(initialJoinCode);
+      setActiveTab('join');
+    }
+  }, [initialJoinCode]);
 
   // Multiplayer Host States
   const [hostMode, setHostMode] = useState<'gold_quest' | 'case_race'>('gold_quest');

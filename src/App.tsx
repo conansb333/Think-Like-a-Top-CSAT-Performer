@@ -29,12 +29,9 @@ import {
 } from 'lucide-react';
 
 const getClientId = () => {
-  let id = sessionStorage.getItem('csat_challenge_client_id');
-  if (!id) {
-    id = 'client_' + Math.random().toString(36).substring(2, 11);
-    sessionStorage.setItem('csat_challenge_client_id', id);
-  }
-  return id;
+  // Generate a brand new unique ID per page load to ensure separate tabs have separate client IDs,
+  // preventing conflicts when players test multiplayer using multiple tabs in the same browser session.
+  return 'client_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36);
 };
 
 const clientId = getClientId();
@@ -97,6 +94,20 @@ export default function App() {
   // Game state
   const [phase, setPhase] = useState<GamePhase>('welcome');
   const [isMuted, setIsMuted] = useState(() => sounds.getMuteState());
+  const [initialJoinCode, setInitialJoinCode] = useState<string>('');
+
+  // Handle URL join parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinParam = params.get('join');
+    if (joinParam && joinParam.trim().length === 6) {
+      const code = joinParam.trim().toUpperCase();
+      setInitialJoinCode(code);
+      // Clean query parameter from address bar so it doesn't linger
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+    }
+  }, []);
 
   // Multiplayer integration states
   const [multiplayerMode, setMultiplayerMode] = useState<'single_player' | 'multiplayer_player' | 'multiplayer_host' | null>(null);
@@ -767,51 +778,8 @@ export default function App() {
         return data.message || 'Could not join room';
       }
     } catch (err: any) {
-      console.warn('REST join failed, falling back to simulated local multiplayer lobby:', err);
-      const errMessage = err?.message || 'Could not join room';
-      
-      // If the error was explicitly a known room error, bubble it up
-      if (errMessage.includes("double check") || errMessage.includes("full") || errMessage.includes("already started") || errMessage.includes("taken")) {
-        return errMessage;
-      }
-
-      console.log("Falling back to local simulated lobby...");
-      setIsSimulatedMultiplayer(true);
-      const targetRoomCode = roomCode || 'SIMUL8';
-      setGameId(targetRoomCode);
-      setMultiplayerMode('multiplayer_player');
-      setPhase('lobby');
-
-      const initialGame: MultiplayerGame = {
-        gameId: targetRoomCode,
-        status: 'lobby',
-        mode: 'gold_quest',
-        hostClientId: 'SIM_HOST',
-        players: [
-          {
-            clientId,
-            name: nickname,
-            avatar: avatarName,
-            avatarEmoji,
-            gold: 0,
-            correctAnswers: 0,
-            totalAnswered: 0,
-            shieldCount: 0,
-            streak: 0,
-            highestStreak: 0,
-            isFinished: false,
-            lastActive: Date.now(),
-          }
-        ],
-        logs: ['Successfully clocked into the simulated training floor! Waiting for other advocates...'],
-        createdAt: Date.now(),
-        gameLength: 10,
-        durationSeconds: 180,
-      };
-      setMultiplayerGame(initialGame);
-      showToast('Offline Mode detected. Launched in Local Simulated Lobby! 🚀', 'success');
-      sounds.playUnlock();
-      return null;
+      console.warn('REST join failed:', err);
+      return 'Unable to connect to the multiplayer server. Please verify your internet connection or try again later.';
     }
   };
 
@@ -851,28 +819,8 @@ export default function App() {
         return data.message || 'Could not create multiplayer session';
       }
     } catch (err: any) {
-      console.warn('REST host failed, falling back to simulated local multiplayer host:', err);
-      setIsSimulatedMultiplayer(true);
-      const mockGameId = 'SIMUL8';
-      setGameId(mockGameId);
-      setMultiplayerMode('multiplayer_host');
-      setPhase('lobby');
-
-      const initialGame: MultiplayerGame = {
-        gameId: mockGameId,
-        status: 'lobby',
-        mode: mode === 'gold_quest' ? 'gold_quest' : 'speed_race',
-        hostClientId: clientId,
-        players: [],
-        logs: ['Simulated lobby spawned. Waiting for local simulated advocates to clock in...'],
-        createdAt: Date.now(),
-        gameLength,
-        durationSeconds,
-      };
-      setMultiplayerGame(initialGame);
-      showToast('Offline Mode detected. Spawned Local Simulated Lobby! 👑', 'success');
-      sounds.playUnlock();
-      return null;
+      console.warn('REST host failed:', err);
+      return 'Unable to host training arena. Please verify your internet connection or try again later.';
     }
   };
 
@@ -1500,6 +1448,7 @@ export default function App() {
               onHostMultiplayer={handleHostMultiplayer}
               isMuted={isMuted}
               onToggleMute={handleToggleMute}
+              initialJoinCode={initialJoinCode}
             />
           )}
 
