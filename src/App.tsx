@@ -382,183 +382,196 @@ export default function App() {
     };
   }, [multiplayerMode, gameId, clientId, phase, isSimulatedMultiplayer]);
 
-  // Local simulated multiplayer lobby joining
+  // Local or Host-mediated Bot gameplay tick
   useEffect(() => {
-    if (!isSimulatedMultiplayer || phase !== 'lobby' || !multiplayerGame) return;
+    if (!multiplayerGame || multiplayerGame.status !== 'playing') return;
 
-    const botPool = [
-      { name: 'Sarah Owl 🦉', avatar: 'Wisdom Owl', emoji: '🦉' },
-      { name: 'Alex Lion 🦁', avatar: 'FCR Lion', emoji: '🦁' },
-      { name: 'Miku Panda 🐼', avatar: 'Chill Panda', emoji: '🐼' },
-      { name: 'Dave Fox 🦊', avatar: 'Empathy Fox', emoji: '🦊' },
-      { name: 'Emily Frog 🐸', avatar: 'Rapport Frog', emoji: '🐸' },
-    ];
-
-    // Select bots that aren't already in the lobby
-    const currentBotNames = multiplayerGame.players.map(p => p.name);
-    const availableBots = botPool.filter(b => !currentBotNames.includes(b.name));
-
-    if (availableBots.length === 0) return;
-
-    // Simulate player joining every 2.5 seconds
-    const timer = setTimeout(() => {
-      const randomBot = availableBots[Math.floor(Math.random() * availableBots.length)];
-      const newPlayer: MultiplayerPlayer = {
-        clientId: 'sim-bot-' + Math.random().toString(36).substr(2, 9),
-        name: randomBot.name,
-        avatar: randomBot.avatar,
-        avatarEmoji: randomBot.emoji,
-        gold: 0,
-        correctAnswers: 0,
-        totalAnswered: 0,
-        shieldCount: 0,
-        streak: 0,
-        highestStreak: 0,
-        isFinished: false,
-        lastActive: Date.now(),
-      };
-
-      setMultiplayerGame(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          players: [...prev.players, newPlayer],
-          logs: [`👋 ${randomBot.name} clocked onto the support floor!`, ...prev.logs],
-        };
-      });
-    }, 2500);
-
-    return () => clearTimeout(timer);
-  }, [isSimulatedMultiplayer, phase, multiplayerGame?.players.length]);
-
-  // Local simulated multiplayer gameplay tick
-  useEffect(() => {
-    if (!isSimulatedMultiplayer || !multiplayerGame || multiplayerGame.status !== 'playing') return;
+    // Run this tick only if:
+    // 1. We are in simulated offline mode OR
+    // 2. We are the host of a real multiplayer room
+    const isHostAndOnline = multiplayerMode === 'multiplayer_host' && !isSimulatedMultiplayer;
+    if (!isSimulatedMultiplayer && !isHostAndOnline) return;
 
     const interval = setInterval(() => {
-      // Pick a random bot player
-      const botPlayers = multiplayerGame.players.filter(p => p.clientId !== clientId);
+      // Find bot players (clientId starts with 'sim-bot-')
+      const botPlayers = multiplayerGame.players.filter(p => p.clientId.startsWith('sim-bot-'));
       if (botPlayers.length === 0) return;
 
       const randomBot = botPlayers[Math.floor(Math.random() * botPlayers.length)];
-      const isCorrect = Math.random() < 0.85;
+      const isCorrect = Math.random() < 0.82; // 82% accuracy rate
 
-      setMultiplayerGame(prev => {
-        if (!prev) return null;
+      if (isSimulatedMultiplayer) {
+        // Offline simulated game logic
+        setMultiplayerGame(prev => {
+          if (!prev) return null;
 
-        let updatedPlayers = [...prev.players];
-        let updatedLogs = [...prev.logs];
-        const botIdx = updatedPlayers.findIndex(p => p.clientId === randomBot.clientId);
-        if (botIdx === -1) return prev;
+          let updatedPlayers = [...prev.players];
+          let updatedLogs = [...prev.logs];
+          const botIdx = updatedPlayers.findIndex(p => p.clientId === randomBot.clientId);
+          if (botIdx === -1) return prev;
 
-        const currentBot = updatedPlayers[botIdx];
+          const currentBot = updatedPlayers[botIdx];
 
-        if (isCorrect) {
-          // Determine reward
-          const rewardRoll = Math.random();
-          if (rewardRoll < 0.15) {
-            // Steal action!
-            const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
-            if (targets.length > 0) {
-              const target = targets[Math.floor(Math.random() * targets.length)];
-              const isTargetMe = target.clientId === clientId;
-              const stealPct = Math.random() < 0.5 ? 0.25 : 0.5;
-              const stealAmount = Math.round(target.gold * stealPct);
+          if (isCorrect) {
+            const rewardRoll = Math.random();
+            if (rewardRoll < 0.15) {
+              // Steal action
+              const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
+              if (targets.length > 0) {
+                const target = targets[Math.floor(Math.random() * targets.length)];
+                const isTargetMe = target.clientId === clientId;
+                const stealPct = Math.random() < 0.5 ? 0.25 : 0.5;
+                const stealAmount = Math.round(target.gold * stealPct);
 
-              if (target.shieldCount > 0) {
-                // Blocked
-                const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
-                updatedPlayers[targetIdx] = {
-                  ...target,
-                  shieldCount: target.shieldCount - 1,
-                };
-                updatedLogs.unshift(`🛡️ ${target.name} blocked ${currentBot.name}'s queue hijack!`);
-                if (isTargetMe) {
-                  showToast(`Your Empathy Shield blocked a queue hijack from ${currentBot.name}! 🛡️`, 'success');
-                  sounds.playShield();
-                  setPlayer(p => ({ ...p, shieldCount: p.shieldCount - 1 }));
+                if (target.shieldCount > 0) {
+                  const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
+                  updatedPlayers[targetIdx] = {
+                    ...target,
+                    shieldCount: target.shieldCount - 1,
+                  };
+                  updatedLogs.unshift(`🛡️ ${target.name} blocked ${currentBot.name}'s queue hijack!`);
+                  if (isTargetMe) {
+                    showToast(`Your Empathy Shield blocked a queue hijack from ${currentBot.name}! 🛡️`, 'success');
+                    sounds.playShield();
+                    setPlayer(p => ({ ...p, shieldCount: p.shieldCount - 1 }));
+                  }
+                } else {
+                  const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
+                  updatedPlayers[targetIdx] = {
+                    ...target,
+                    gold: Math.max(0, target.gold - stealAmount),
+                  };
+                  updatedPlayers[botIdx] = {
+                    ...currentBot,
+                    gold: currentBot.gold + stealAmount,
+                    streak: (currentBot.streak || 0) + 1,
+                  };
+                  updatedLogs.unshift(`🥷 ${currentBot.name} hijacked ${target.name}'s ticket pool and swiped 🪙 ${stealAmount.toLocaleString()} gold!`);
+                  if (isTargetMe) {
+                    showToast(`🥷 ${currentBot.name} hijacked your tickets and swiped 🪙 ${stealAmount} gold!`, 'warning');
+                    sounds.playIncorrect();
+                    setPlayer(p => ({ ...p, gold: Math.max(0, p.gold - stealAmount) }));
+                  }
                 }
-              } else {
-                // Success
+              }
+            } else if (rewardRoll < 0.22) {
+              // Swap action
+              const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
+              if (targets.length > 0) {
+                const target = targets[Math.floor(Math.random() * targets.length)];
+                const isTargetMe = target.clientId === clientId;
+
                 const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
-                updatedPlayers[targetIdx] = {
-                  ...target,
-                  gold: Math.max(0, target.gold - stealAmount),
-                };
+                const botGold = currentBot.gold;
+                const targetGold = target.gold;
+
                 updatedPlayers[botIdx] = {
                   ...currentBot,
-                  gold: currentBot.gold + stealAmount,
+                  gold: targetGold,
                   streak: (currentBot.streak || 0) + 1,
                 };
-                updatedLogs.unshift(`🥷 ${currentBot.name} hijacked ${target.name}'s ticket pool and swiped 🪙 ${stealAmount.toLocaleString()} gold!`);
+                updatedPlayers[targetIdx] = {
+                  ...target,
+                  gold: botGold,
+                };
+
+                updatedLogs.unshift(`🔄 ${currentBot.name} swapped active tickets with ${target.name}! Balance swapped!`);
                 if (isTargetMe) {
-                  showToast(`🥷 ${currentBot.name} hijacked your tickets and swiped 🪙 ${stealAmount} gold!`, 'warning');
-                  sounds.playIncorrect();
-                  setPlayer(p => ({ ...p, gold: Math.max(0, p.gold - stealAmount) }));
+                  showToast(`🔄 ${currentBot.name} swapped active tickets with you! Your gold is now 🪙 ${botGold.toLocaleString()}!`, 'info');
+                  sounds.playCoins();
+                  setPlayer(p => ({ ...p, gold: botGold }));
                 }
               }
-            }
-          } else if (rewardRoll < 0.22) {
-            // Swap action!
-            const targets = updatedPlayers.filter(p => p.clientId !== currentBot.clientId);
-            if (targets.length > 0) {
-              const target = targets[Math.floor(Math.random() * targets.length)];
-              const isTargetMe = target.clientId === clientId;
-
-              const targetIdx = updatedPlayers.findIndex(p => p.clientId === target.clientId);
-              const botGold = currentBot.gold;
-              const targetGold = target.gold;
-
+            } else {
+              // Normal gold addition
+              const earned = Math.floor(150 + Math.random() * 200);
               updatedPlayers[botIdx] = {
                 ...currentBot,
-                gold: targetGold,
+                gold: currentBot.gold + earned,
+                correctAnswers: currentBot.correctAnswers + 1,
+                totalAnswered: currentBot.totalAnswered + 1,
                 streak: (currentBot.streak || 0) + 1,
+                highestStreak: Math.max(currentBot.highestStreak || 0, (currentBot.streak || 0) + 1),
               };
-              updatedPlayers[targetIdx] = {
-                ...target,
-                gold: botGold,
-              };
-
-              updatedLogs.unshift(`🔄 ${currentBot.name} swapped active tickets with ${target.name}! Balance swapped!`);
-              if (isTargetMe) {
-                showToast(`🔄 ${currentBot.name} swapped active tickets with you! Your gold is now 🪙 ${botGold.toLocaleString()}!`, 'info');
-                sounds.playCoins();
-                setPlayer(p => ({ ...p, gold: botGold }));
-              }
+              updatedLogs.unshift(`🪙 ${currentBot.name} resolved a complex case. +${earned} Gold!`);
             }
           } else {
-            // Normal gold addition
-            const earned = Math.floor(150 + Math.random() * 200);
             updatedPlayers[botIdx] = {
               ...currentBot,
-              gold: currentBot.gold + earned,
-              correctAnswers: currentBot.correctAnswers + 1,
               totalAnswered: currentBot.totalAnswered + 1,
-              streak: (currentBot.streak || 0) + 1,
-              highestStreak: Math.max(currentBot.highestStreak || 0, (currentBot.streak || 0) + 1),
+              streak: 0,
             };
-            updatedLogs.unshift(`🪙 ${currentBot.name} resolved a complex case. +${earned} Gold!`);
+            updatedLogs.unshift(`⚠️ ${currentBot.name} spent extra time researching standard guidelines.`);
           }
-        } else {
-          // Incorrect
-          updatedPlayers[botIdx] = {
-            ...currentBot,
-            totalAnswered: currentBot.totalAnswered + 1,
-            streak: 0,
-          };
-          updatedLogs.unshift(`⚠️ ${currentBot.name} spent extra time researching standard guidelines.`);
-        }
 
-        return {
-          ...prev,
-          players: updatedPlayers,
-          logs: updatedLogs,
-        };
-      });
-    }, 3200);
+          return {
+            ...prev,
+            players: updatedPlayers,
+            logs: updatedLogs,
+          };
+        });
+      } else {
+        // Online real room -> post bot actions to the backend server!
+        fetch('/api/multiplayer/answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameId, clientId: randomBot.clientId, isCorrect }),
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.game && isCorrect) {
+            const rewardRoll = Math.random();
+            if (rewardRoll < 0.15) {
+              const targets = data.game.players.filter((p: any) => p.clientId !== randomBot.clientId);
+              if (targets.length > 0) {
+                const target = targets[Math.floor(Math.random() * targets.length)];
+                const stealPct = Math.random() < 0.5 ? 0.25 : 0.5;
+                fetch('/api/multiplayer/chest', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    gameId,
+                    clientId: randomBot.clientId,
+                    reward: { type: 'steal', value: stealPct },
+                    targetClientId: target.clientId,
+                  }),
+                }).catch(err => console.error("Error submitting bot steal chest:", err));
+              }
+            } else if (rewardRoll < 0.22) {
+              const targets = data.game.players.filter((p: any) => p.clientId !== randomBot.clientId);
+              if (targets.length > 0) {
+                const target = targets[Math.floor(Math.random() * targets.length)];
+                fetch('/api/multiplayer/chest', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    gameId,
+                    clientId: randomBot.clientId,
+                    reward: { type: 'swap' },
+                    targetClientId: target.clientId,
+                  }),
+                }).catch(err => console.error("Error submitting bot swap chest:", err));
+              }
+            } else {
+              const earned = Math.floor(150 + Math.random() * 200);
+              fetch('/api/multiplayer/chest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  gameId,
+                  clientId: randomBot.clientId,
+                  reward: { type: 'gold_add', value: earned },
+                }),
+              }).catch(err => console.error("Error submitting bot gold add chest:", err));
+            }
+          }
+        })
+        .catch(err => console.error("Error in bot answer:", err));
+      }
+    }, 4500);
 
     return () => clearInterval(interval);
-  }, [isSimulatedMultiplayer, multiplayerGame?.status]);
+  }, [isSimulatedMultiplayer, multiplayerMode, multiplayerGame, gameId, clientId]);
 
   // Local simulated multiplayer synchronization and player sync
   useEffect(() => {
@@ -860,6 +873,88 @@ export default function App() {
       showToast('Offline Mode detected. Spawned Local Simulated Lobby! 👑', 'success');
       sounds.playUnlock();
       return null;
+    }
+  };
+
+  const handleAddBot = async () => {
+    if (!multiplayerGame) return;
+
+    const botPool = [
+      { name: 'Sarah Owl 🦉', avatar: 'Wisdom Owl', emoji: '🦉' },
+      { name: 'Alex Lion 🦁', avatar: 'FCR Lion', emoji: '🦁' },
+      { name: 'Miku Panda 🐼', avatar: 'Chill Panda', emoji: '🐼' },
+      { name: 'Dave Fox 🦊', avatar: 'Empathy Fox', emoji: '🦊' },
+      { name: 'Emily Frog 🐸', avatar: 'Rapport Frog', emoji: '🐸' },
+    ];
+
+    // Pick a bot name that isn't already in the lobby
+    const currentBotNames = multiplayerGame.players.map(p => p.name);
+    const availableBots = botPool.filter(b => !currentBotNames.includes(b.name));
+
+    if (availableBots.length === 0) {
+      showToast('Maximum simulated bots added!', 'warning');
+      return;
+    }
+
+    const randomBot = availableBots[Math.floor(Math.random() * availableBots.length)];
+    const botClientId = 'sim-bot-' + Math.random().toString(36).substr(2, 9);
+
+    if (isSimulatedMultiplayer) {
+      // Offline / Simulated mode -> add locally
+      const newPlayer: MultiplayerPlayer = {
+        clientId: botClientId,
+        name: randomBot.name,
+        avatar: randomBot.avatar,
+        avatarEmoji: randomBot.emoji,
+        gold: 0,
+        correctAnswers: 0,
+        totalAnswered: 0,
+        shieldCount: 0,
+        streak: 0,
+        highestStreak: 0,
+        isFinished: false,
+        lastActive: Date.now(),
+      };
+
+      setMultiplayerGame(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          players: [...prev.players, newPlayer],
+          logs: [`👋 ${randomBot.name} clocked onto the support floor!`, ...prev.logs],
+        };
+      });
+      showToast(`${randomBot.name} joined the lobby!`, 'success');
+      sounds.playUnlock();
+    } else {
+      // Real Online room -> hit the REST api join endpoint!
+      try {
+        const res = await fetch('/api/multiplayer/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gameId,
+            clientId: botClientId,
+            name: randomBot.name,
+            avatar: randomBot.avatar,
+            avatarEmoji: randomBot.emoji,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.game) {
+            setMultiplayerGame(data.game);
+            showToast(`${randomBot.name} joined the online lobby!`, 'success');
+            sounds.playUnlock();
+          } else {
+            showToast(data.message || 'Could not add bot to online lobby', 'warning');
+          }
+        }
+      } catch (err) {
+        console.error('Error adding bot to online lobby:', err);
+        showToast('Error adding bot to online lobby', 'warning');
+      }
     }
   };
 
@@ -1438,6 +1533,7 @@ export default function App() {
                 });
               }}
               onLeave={handleRestart}
+              onAddBot={handleAddBot}
             />
           )}
 

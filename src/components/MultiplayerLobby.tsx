@@ -11,6 +11,7 @@ interface MultiplayerLobbyProps {
   isHost?: boolean;
   onStartGame?: () => void;
   isSimulated?: boolean;
+  onAddBot?: () => void;
 }
 
 export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
@@ -21,6 +22,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   isHost,
   onStartGame,
   isSimulated,
+  onAddBot,
 }) => {
   const [copied, setCopied] = React.useState(false);
 
@@ -108,6 +110,18 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                 className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-emerald-950 font-black font-sans uppercase py-4 px-4 rounded-xl text-sm flex items-center justify-center gap-1.5 cursor-pointer border-b-4 border-emerald-700 active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
               >
                 <span>START TRAINING SESSION</span>
+              </button>
+            )}
+
+            {isHost && onAddBot && (
+              <button
+                type="button"
+                onClick={onAddBot}
+                disabled={players.length >= 10}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold font-sans uppercase py-3.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-slate-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_12px_rgba(245,158,11,0.05)]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                <span>ADD BOT PLAYER</span>
               </button>
             )}
 
