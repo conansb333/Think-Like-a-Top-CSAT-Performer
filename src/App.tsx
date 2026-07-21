@@ -1718,13 +1718,10 @@ export default function App() {
         </div>
       </main>
 
-      {/* Footer Branding credits */}
+      {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 bg-slate-950/60 mt-8 text-center text-xs font-mono text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>&copy; {new Date().getFullYear()} Think Like a Top CSAT Performer. All rights reserved.</span>
-          <span className="flex items-center gap-1">
-            <Award className="w-3.5 h-3.5 text-amber-500" /> Inspired by Gold Quest gamification
-          </span>
+        <div className="max-w-7xl mx-auto px-4 md:px-6 flex items-center justify-center gap-2">
+          <span>🎮 Just for fun &amp; educational purposes — no formal rules!</span>
         </div>
       </footer>
     </div>
