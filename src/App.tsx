@@ -29,10 +29,10 @@ import {
 } from 'lucide-react';
 
 const getClientId = () => {
-  let id = localStorage.getItem('csat_challenge_client_id');
+  let id = sessionStorage.getItem('csat_challenge_client_id');
   if (!id) {
     id = 'client_' + Math.random().toString(36).substring(2, 11);
-    localStorage.setItem('csat_challenge_client_id', id);
+    sessionStorage.setItem('csat_challenge_client_id', id);
   }
   return id;
 };
