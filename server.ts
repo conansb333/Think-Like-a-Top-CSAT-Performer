@@ -277,38 +277,78 @@ app.post("/api/multiplayer/chest", (req, res) => {
   player.lastActive = Date.now();
   const avatar = player.avatar;
 
-  // Process Reward Type
-  switch (reward.type) {
-    case 'gold_add': {
-      let gained = reward.value;
+  // Process targeting actions if targetClientId is provided
+  if (targetClientId) {
+    const target = game.players.find(p => p.clientId === targetClientId);
+    if (target) {
+      if (reward.type === 'steal') {
+        const stealPct = reward.value || 0.3;
+        const stealAmount = Math.round(target.gold * stealPct);
 
-      // Apply Avatar specialties:
-      if (avatar === 'Empathy Fox') {
-        gained = Math.round(gained * 1.20);
-      } else if (avatar === 'Wisdom Owl') {
-        if (Math.random() < 0.15) {
-          gained *= 2;
+        if (target.shieldCount > 0) {
+          target.shieldCount = Math.max(0, target.shieldCount - 1);
+          game.logs.unshift(`🛡️ ${target.name} blocked ${player.name}'s queue hijack!`);
+        } else {
+          let finalSteal = stealAmount;
+          let bonusText = '';
+          if (avatar === 'Rapport Frog') {
+            const bonus = Math.round(stealAmount * 0.15);
+            finalSteal += bonus;
+            bonusText = ` (+${bonus} Rapport Bonus!)`;
+          }
+
+          target.gold = Math.max(0, target.gold - stealAmount);
+          player.gold += finalSteal;
+          game.logs.unshift(`🥷 ${player.name} hijacked ${target.name}'s ticket pool and swiped 🪙 ${finalSteal} gold!${bonusText}`);
         }
-      } else if (avatar === 'Chill Panda') {
-        gained += 50;
-      } else if (avatar === 'FCR Lion') {
-        gained = Math.round(gained * 1.25);
-      } else if (avatar === 'Rapport Frog') {
-        gained = Math.round(gained * 1.15);
-      } else if (avatar === 'Growth Unicorn') {
-        gained += 100;
-      }
+      } else if (reward.type === 'swap') {
+        const myGold = player.gold;
+        const targetGold = target.gold;
 
-      player.gold += gained;
-      game.logs.unshift(`🪙 ${player.name} resolved a ticket. +${gained} gold!`);
-      break;
+        player.gold = targetGold;
+        target.gold = myGold;
+        game.logs.unshift(`🔄 ${player.name} swapped active tickets with ${target.name}! Balance swapped!`);
+      }
     }
-    case 'gold_mult': {
-      const original = player.gold;
-      player.gold = Math.round(player.gold * reward.value);
-      const gained = player.gold - original;
-      game.logs.unshift(`✨ ${player.name} opened a multiplier chest. Gold multiplied by ${reward.value}! (+${gained} gold)`);
-      break;
+  } else {
+    // Process single-player reward types
+    switch (reward.type) {
+      case 'gold_add': {
+        let gained = reward.value;
+
+        // Apply Avatar specialties:
+        if (avatar === 'Empathy Fox') {
+          gained = Math.round(gained * 1.20);
+        } else if (avatar === 'Wisdom Owl') {
+          if (Math.random() < 0.15) {
+            gained *= 2;
+          }
+        } else if (avatar === 'Chill Panda') {
+          gained += 50;
+        } else if (avatar === 'FCR Lion') {
+          gained = Math.round(gained * 1.25);
+        } else if (avatar === 'Rapport Frog') {
+          gained = Math.round(gained * 1.15);
+        } else if (avatar === 'Growth Unicorn') {
+          gained += 100;
+        }
+
+        player.gold += gained;
+        game.logs.unshift(`🪙 ${player.name} resolved a ticket. +${gained} gold!`);
+        break;
+      }
+      case 'gold_mult': {
+        const original = player.gold;
+        player.gold = Math.round(player.gold * reward.value);
+        const gained = player.gold - original;
+        game.logs.unshift(`✨ ${player.name} opened a multiplier chest. Gold multiplied by ${reward.value}! (+${gained} gold)`);
+        break;
+      }
+      case 'shield': {
+        player.shieldCount = (player.shieldCount || 0) + 1;
+        game.logs.unshift(`🛡️ ${player.name} obtained an Empathy Shield!`);
+        break;
+      }
     }
   }
 
