@@ -1,0 +1,19 @@
+# Render Blueprint — deploys the Express multiplayer backend (server.ts).
+# After connecting this repo to Render, it auto-detects this file.
+# The frontend (Cloudflare Pages) points to the resulting Render URL via VITE_API_BASE_URL.
+services:
+  - type: web
+    name: csat-quest-server
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.cjs
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Optional — only needed if you want AI-generated scenario images.
+      # Without it, the server falls back to the static images in /public/images.
+      - key: GEMINI_API_KEY
+        sync: false
